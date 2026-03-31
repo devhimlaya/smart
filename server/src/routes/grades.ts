@@ -610,4 +610,89 @@ function transmute(initialGrade: number): number {
   return 60; // Minimum grade
 }
 
+// Get mastery level distribution for DepEd bar graph
+router.get(
+  "/mastery-distribution",
+  authenticateToken,
+  authorizeRoles("TEACHER"),
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { gradeLevel, sectionId } = req.query;
+
+      const teacher = await prisma.teacher.findUnique({
+        where: { userId: req.user?.id },
+      });
+
+      if (!teacher) {
+        res.status(404).json({ message: "Teacher profile not found" });
+        return;
+      }
+
+      // Build filter for class assignments
+      const classAssignmentFilter: any = {
+        teacherId: teacher.id,
+      };
+
+      if (sectionId) {
+        classAssignmentFilter.sectionId = sectionId as string;
+      }
+
+      const classAssignments = await prisma.classAssignment.findMany({
+        where: classAssignmentFilter,
+        include: {
+          section: true,
+          grades: {
+            where: { quarter: "Q1" },
+          },
+        },
+      });
+
+      // Filter by grade level if specified
+      const filteredAssignments = gradeLevel 
+        ? classAssignments.filter((ca: any) => ca.section.gradeLevel === gradeLevel)
+        : classAssignments;
+
+      // Collect all quarterly grades
+      const allGrades = filteredAssignments.flatMap((ca: any) => 
+        ca.grades.filter((g: any) => g.quarterlyGrade !== null).map((g: any) => g.quarterlyGrade)
+      );
+
+      // Calculate mastery level distribution (DepEd categories)
+      const distribution = {
+        outstanding: allGrades.filter((g: number) => g >= 90 && g <= 100).length,
+        verySatisfactory: allGrades.filter((g: number) => g >= 85 && g <= 89).length,
+        satisfactory: allGrades.filter((g: number) => g >= 80 && g <= 84).length,
+        fairlySatisfactory: allGrades.filter((g: number) => g >= 75 && g <= 79).length,
+        didNotMeet: allGrades.filter((g: number) => g < 75).length,
+      };
+
+      // Get available filters (grade levels and sections for this teacher)
+      const allSections = await prisma.classAssignment.findMany({
+        where: { teacherId: teacher.id },
+        include: { section: true },
+        distinct: ['sectionId'],
+      });
+
+      const gradeLevels = [...new Set(allSections.map((ca: any) => ca.section.gradeLevel))];
+      const sections = allSections.map((ca: any) => ({
+        id: ca.section.id,
+        name: ca.section.name,
+        gradeLevel: ca.section.gradeLevel,
+      }));
+
+      res.json({
+        distribution,
+        totalStudents: allGrades.length,
+        filters: {
+          gradeLevels,
+          sections,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching mastery distribution:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  }
+);
+
 export default router;

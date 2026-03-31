@@ -5,9 +5,7 @@ import {
   BookOpen,
   GraduationCap,
   TrendingUp,
-  Calendar,
   ChevronRight,
-  Sparkles,
   Award,
   ArrowUpRight,
   AlertTriangle,
@@ -18,6 +16,7 @@ import {
   FileCheck,
   Star,
   Medal,
+  Filter,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +29,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from "recharts";
 
 interface DashboardData {
   teacher: {
@@ -72,6 +81,21 @@ interface DashboardStats {
   };
 }
 
+interface MasteryDistribution {
+  distribution: {
+    outstanding: number;
+    verySatisfactory: number;
+    satisfactory: number;
+    fairlySatisfactory: number;
+    didNotMeet: number;
+  };
+  totalStudents: number;
+  filters: {
+    gradeLevels: string[];
+    sections: { id: string; name: string; gradeLevel: string }[];
+  };
+}
+
 const gradeLevelLabels: Record<string, string> = {
   GRADE_7: "Grade 7",
   GRADE_8: "Grade 8",
@@ -89,19 +113,37 @@ const gradeLevelColors: Record<string, string> = {
 export default function TeacherDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [masteryData, setMasteryData] = useState<MasteryDistribution | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedHonorsClass, setSelectedHonorsClass] = useState<string>("all");
+  const [selectedGradeLevel, setSelectedGradeLevel] = useState<string>("all");
+  const [selectedSection, setSelectedSection] = useState<string>("all");
+
+  // Fetch mastery distribution with filters
+  const fetchMasteryDistribution = async (gradeLevel?: string, sectionId?: string) => {
+    try {
+      const res = await gradesApi.getMasteryDistribution(
+        gradeLevel === "all" ? undefined : gradeLevel,
+        sectionId === "all" ? undefined : sectionId
+      );
+      setMasteryData(res.data);
+    } catch (err) {
+      console.error("Error fetching mastery distribution:", err);
+    }
+  };
 
   useEffect(() => {
     const fetchDashboard = async () => {
       try {
-        const [dashboardRes, statsRes] = await Promise.all([
+        const [dashboardRes, statsRes, masteryRes] = await Promise.all([
           gradesApi.getDashboard(),
           gradesApi.getDashboardStats(),
+          gradesApi.getMasteryDistribution(),
         ]);
         setData(dashboardRes.data);
         setStats(statsRes.data);
+        setMasteryData(masteryRes.data);
       } catch (err) {
         setError("Failed to load dashboard data");
         console.error(err);
@@ -112,6 +154,52 @@ export default function TeacherDashboard() {
 
     fetchDashboard();
   }, []);
+
+  // Update mastery data when filters change
+  useEffect(() => {
+    if (!loading) {
+      fetchMasteryDistribution(selectedGradeLevel, selectedSection);
+    }
+  }, [selectedGradeLevel, selectedSection]);
+
+  // Get filtered sections based on selected grade level
+  const filteredSections = selectedGradeLevel === "all"
+    ? masteryData?.filters.sections || []
+    : masteryData?.filters.sections.filter(s => s.gradeLevel === selectedGradeLevel) || [];
+
+  // Prepare chart data
+  const chartData = masteryData ? [
+    { 
+      name: "Outstanding", 
+      range: "90-100", 
+      students: masteryData.distribution.outstanding,
+      fill: "#10b981" // emerald-500
+    },
+    { 
+      name: "Very Satisfactory", 
+      range: "85-89", 
+      students: masteryData.distribution.verySatisfactory,
+      fill: "#3b82f6" // blue-500
+    },
+    { 
+      name: "Satisfactory", 
+      range: "80-84", 
+      students: masteryData.distribution.satisfactory,
+      fill: "#f59e0b" // amber-500
+    },
+    { 
+      name: "Fairly Satisfactory", 
+      range: "75-79", 
+      students: masteryData.distribution.fairlySatisfactory,
+      fill: "#f97316" // orange-500
+    },
+    { 
+      name: "Did Not Meet", 
+      range: "<75", 
+      students: masteryData.distribution.didNotMeet,
+      fill: "#ef4444" // red-500
+    },
+  ] : [];
 
   if (loading) {
     return (
@@ -146,55 +234,121 @@ export default function TeacherDashboard() {
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* Welcome Header - Premium Glass Design */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 p-8 lg:p-10 text-white shadow-2xl shadow-emerald-500/20">
-        {/* Animated background elements */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute top-0 right-0 w-80 h-80 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 animate-float" />
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-teal-400/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/4 animate-float" style={{ animationDelay: '2s' }} />
-          {/* Grid overlay */}
-          <div className="absolute inset-0 opacity-[0.03]" style={{
-            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-            backgroundSize: '40px 40px'
-          }} />
-        </div>
-        
-        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-emerald-100" />
+      {/* DepEd Mastery Level Distribution Chart */}
+      <Card className="border-0 shadow-xl shadow-gray-200/50 bg-white overflow-hidden rounded-2xl">
+        <CardHeader className="border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-5">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg">
+                <BarChart3 className="w-5 h-5" />
               </div>
-              <span className="text-sm text-emerald-100 font-semibold tracking-wide uppercase">Welcome back</span>
+              <div>
+                <CardTitle className="text-lg font-bold text-gray-900">DepEd Mastery Level Distribution</CardTitle>
+                <CardDescription className="text-gray-500 text-sm">Q1 student performance by mastery level</CardDescription>
+              </div>
             </div>
-            <h1 className="text-3xl lg:text-4xl font-bold mb-3 tracking-tight !text-white">
-              Good morning, {data.teacher.name}!
-            </h1>
+            
+            {/* Filters */}
             <div className="flex flex-wrap items-center gap-3">
-              <Badge variant="secondary" className="bg-white/20 text-white border-0 font-semibold px-3 py-1 backdrop-blur-sm">
-                <GraduationCap className="w-4 h-4 mr-1.5" />
-                {data.teacher.employeeId}
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-gray-400" />
+                <span className="text-sm text-gray-500 font-medium">Filter:</span>
+              </div>
+              <Select 
+                value={selectedGradeLevel} 
+                onValueChange={(val) => {
+                  if (val) setSelectedGradeLevel(val);
+                  setSelectedSection("all"); // Reset section when grade level changes
+                }}
+              >
+                <SelectTrigger className="w-36 bg-white border-gray-200 rounded-xl">
+                  <SelectValue placeholder="Grade Level" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="all" className="rounded-lg">All Grades</SelectItem>
+                  {masteryData?.filters.gradeLevels.map((gl) => (
+                    <SelectItem key={gl} value={gl} className="rounded-lg">
+                      {gradeLevelLabels[gl] || gl}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={selectedSection} onValueChange={(val) => val && setSelectedSection(val)}>
+                <SelectTrigger className="w-40 bg-white border-gray-200 rounded-xl">
+                  <SelectValue placeholder="Section" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="all" className="rounded-lg">All Sections</SelectItem>
+                  {filteredSections.map((section) => (
+                    <SelectItem key={section.id} value={section.id} className="rounded-lg">
+                      {section.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Badge className="bg-emerald-100 text-emerald-700 font-semibold px-3 py-1">
+                {masteryData?.totalStudents || 0} Students Graded
               </Badge>
-              {data.teacher.specialization && (
-                <span className="text-emerald-100 text-sm">
-                  {data.teacher.specialization} Department
-                </span>
-              )}
             </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis 
+                  dataKey="name" 
+                  tick={{ fill: '#6b7280', fontSize: 12 }}
+                  angle={-20}
+                  textAnchor="end"
+                  height={80}
+                  interval={0}
+                />
+                <YAxis 
+                  tick={{ fill: '#6b7280', fontSize: 12 }}
+                  label={{ value: 'Number of Students', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 13 }}
+                  allowDecimals={false}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'white', 
+                    border: '1px solid #e5e7eb', 
+                    borderRadius: '12px',
+                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                  }}
+                  formatter={(value, _name, props) => [
+                    `${value} student${Number(value) !== 1 ? 's' : ''}`,
+                    `${(props.payload as { name: string; range: string }).name} (${(props.payload as { name: string; range: string }).range})`
+                  ]}
+                  labelFormatter={() => ''}
+                />
+                <Bar 
+                  dataKey="students" 
+                  radius={[8, 8, 0, 0]}
+                  maxBarSize={80}
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
           
-          <div className="flex items-center gap-4 bg-white/10 backdrop-blur-md rounded-2xl p-5 border border-white/20">
-            <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center">
-              <Calendar className="w-7 h-7 text-emerald-100" />
-            </div>
-            <div>
-              <p className="text-xs text-emerald-200 uppercase tracking-wider font-semibold">Academic Year</p>
-              <p className="text-2xl font-bold mt-0.5">2025-2026</p>
-              <p className="text-sm text-emerald-100 mt-0.5">1st Semester</p>
-            </div>
+          {/* Legend */}
+          <div className="flex flex-wrap justify-center gap-4 mt-4 pt-4 border-t border-gray-100">
+            {chartData.map((item) => (
+              <div key={item.name} className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: item.fill }} />
+                <span className="text-sm text-gray-600">
+                  {item.name} <span className="text-gray-400">({item.range})</span>
+                </span>
+              </div>
+            ))}
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards - Modern Bento Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
@@ -260,8 +414,8 @@ export default function TeacherDashboard() {
                   <div key={classStat.id} className="group">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-gray-900 text-sm">{classStat.subjectName}</span>
-                        <span className="text-gray-400 text-xs">• {classStat.sectionName}</span>
+                        <span className="font-semibold text-gray-900 text-sm">{gradeLevelLabels[classStat.gradeLevel as keyof typeof gradeLevelLabels] || classStat.gradeLevel}</span>
+                        <span className="text-gray-400 text-xs">• <span className="font-bold text-gray-600">{classStat.sectionName}</span></span>
                       </div>
                       <div className="flex items-center gap-2">
                         {isComplete ? (
@@ -324,8 +478,8 @@ export default function TeacherDashboard() {
                         {avgGrade > 0 ? avgGrade : '-'}
                       </div>
                       <div>
-                        <p className="font-semibold text-gray-900 text-sm">{classStat.subjectName}</p>
-                        <p className="text-xs text-gray-500">{classStat.sectionName}</p>
+                        <p className="font-semibold text-gray-900 text-sm">{gradeLevelLabels[classStat.gradeLevel as keyof typeof gradeLevelLabels] || classStat.gradeLevel}</p>
+                        <p className="text-xs text-gray-500 font-bold">{classStat.sectionName}</p>
                       </div>
                     </div>
                     <div className="text-right">
@@ -363,7 +517,7 @@ export default function TeacherDashboard() {
                   <SelectItem value="all" className="rounded-lg">All Classes</SelectItem>
                   {stats?.classStats.map((cs) => (
                     <SelectItem key={cs.id} value={cs.id} className="rounded-lg">
-                      {cs.subjectName} - {cs.sectionName}
+                      {gradeLevelLabels[cs.gradeLevel as keyof typeof gradeLevelLabels] || cs.gradeLevel} - {cs.sectionName}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -379,7 +533,7 @@ export default function TeacherDashboard() {
               const allHonors = filteredStats?.flatMap(cs => 
                 [...cs.honorsStudents, ...cs.withHonorsStudents].map(s => ({
                   ...s,
-                  class: `${cs.subjectName} - ${cs.sectionName}`
+                  class: `${gradeLevelLabels[cs.gradeLevel as keyof typeof gradeLevelLabels] || cs.gradeLevel} - ${cs.sectionName}`
                 }))
               ) || [];
               
@@ -419,7 +573,7 @@ export default function TeacherDashboard() {
                         </div>
                         <div>
                           <p className="font-semibold text-gray-900 text-sm">{student.name}</p>
-                          <p className="text-xs text-gray-500">{student.class}</p>
+                          <p className="text-xs text-gray-500"><span className="font-bold">{student.class.split(' - ')[0]}</span> - <span className="font-bold">{student.class.split(' - ')[1]}</span></p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -529,7 +683,7 @@ export default function TeacherDashboard() {
                     </div>
                     <div>
                       <p className="font-semibold text-gray-900 text-sm">{student.name}</p>
-                      <p className="text-xs text-gray-500">{student.class}</p>
+                      <p className="text-xs text-gray-500"><span className="font-bold">{student.class.split(' - ')[0]}</span> - <span className="font-bold">{student.class.split(' - ')[1]}</span></p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -586,8 +740,8 @@ export default function TeacherDashboard() {
                     </Badge>
                     <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all" />
                   </div>
-                  <h4 className="font-bold text-gray-900 group-hover:text-emerald-600 transition-colors">{assignment.subject.name}</h4>
-                  <p className="text-sm text-gray-500 mt-1">Section {assignment.section.name}</p>
+                  <h4 className="font-bold text-gray-900 group-hover:text-emerald-600 transition-colors">{gradeLevelLabels[assignment.section.gradeLevel]}</h4>
+                  <p className="text-sm text-gray-500 mt-1">Section <span className="font-bold text-gray-700">{assignment.section.name}</span></p>
                   <div className="flex items-center gap-1.5 mt-3 text-xs text-gray-400">
                     <Users className="w-3.5 h-3.5" />
                     <span>{assignment.section._count?.enrollments ?? assignment.section.enrollments?.length ?? 0} students</span>

@@ -192,6 +192,24 @@ export const gradesApi = {
   }) => api.post<Grade>("/grades/grade", data),
 
   deleteGrade: (gradeId: string) => api.delete(`/grades/grade/${gradeId}`),
+
+  getMasteryDistribution: (gradeLevel?: string, sectionId?: string) =>
+    api.get<{
+      distribution: {
+        outstanding: number;
+        verySatisfactory: number;
+        satisfactory: number;
+        fairlySatisfactory: number;
+        didNotMeet: number;
+      };
+      totalStudents: number;
+      filters: {
+        gradeLevels: string[];
+        sections: { id: string; name: string; gradeLevel: string }[];
+      };
+    }>("/grades/mastery-distribution", {
+      params: { gradeLevel, sectionId },
+    }),
 };
 
 export default api;
