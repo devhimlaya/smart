@@ -1,0 +1,197 @@
+import axios from "axios";
+
+const API_URL = "http://localhost:5000/api";
+
+// Create axios instance with auth header
+const api = axios.create({
+  baseURL: API_URL,
+});
+
+// Add auth token to requests
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle 401 responses
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Types
+export interface User {
+  id: string;
+  username: string;
+  role: "TEACHER" | "ADMIN" | "REGISTRAR";
+  firstName?: string;
+  lastName?: string;
+}
+
+export interface Teacher {
+  id: string;
+  userId: string;
+  employeeId: string;
+  specialization?: string;
+  user: {
+    firstName: string;
+    lastName: string;
+  };
+}
+
+export interface Student {
+  id: string;
+  lrn: string;
+  firstName: string;
+  middleName?: string;
+  lastName: string;
+  suffix?: string;
+  gender?: string;
+}
+
+export interface Subject {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  writtenWorkWeight: number;
+  perfTaskWeight: number;
+  quarterlyAssessWeight: number;
+}
+
+export interface Section {
+  id: string;
+  name: string;
+  gradeLevel: string;
+  schoolYear: string;
+  adviser?: string;
+  enrollments?: {
+    student: Student;
+  }[];
+  _count?: {
+    enrollments: number;
+  };
+}
+
+export interface ClassAssignment {
+  id: string;
+  teacherId: string;
+  subjectId: string;
+  sectionId: string;
+  schoolYear: string;
+  subject: Subject;
+  section: Section;
+}
+
+export interface ScoreItem {
+  name: string;
+  score: number;
+  maxScore: number;
+}
+
+export interface Grade {
+  id: string;
+  studentId: string;
+  classAssignmentId: string;
+  quarter: "Q1" | "Q2" | "Q3" | "Q4";
+  writtenWorkScores: ScoreItem[] | null;
+  perfTaskScores: ScoreItem[] | null;
+  quarterlyAssessScore: number | null;
+  quarterlyAssessMax: number | null;
+  writtenWorkPS: number | null;
+  perfTaskPS: number | null;
+  quarterlyAssessPS: number | null;
+  initialGrade: number | null;
+  quarterlyGrade: number | null;
+  remarks?: string;
+}
+
+export interface ClassRecord {
+  student: Student;
+  grades: Grade[];
+}
+
+// Auth API
+export const authApi = {
+  login: (username: string, password: string) =>
+    api.post<{ token: string; user: User; message: string }>("/auth/login", {
+      username,
+      password,
+    }),
+  me: () => api.get<User>("/auth/me"),
+  logout: () => api.post("/auth/logout"),
+};
+
+// Grades API
+export const gradesApi = {
+  getDashboard: () =>
+    api.get<{
+      teacher: Teacher & { name: string };
+      stats: {
+        totalClasses: number;
+        totalStudents: number;
+        subjects: string[];
+      };
+      classAssignments: ClassAssignment[];
+    }>("/grades/dashboard"),
+
+  getDashboardStats: () =>
+    api.get<{
+      classStats: {
+        id: string;
+        subjectName: string;
+        sectionName: string;
+        gradeLevel: string;
+        totalStudents: number;
+        gradedCount: number;
+        avgGrade: number | null;
+        passingRate: number;
+        studentsAtRisk: { id: string; name: string; grade: number; class: string }[];
+        honorsStudents: { id: string; name: string; grade: number; honor: string }[];
+        withHonorsStudents: { id: string; name: string; grade: number; honor: string }[];
+      }[];
+      summary: {
+        totalClasses: number;
+        totalStudents: number;
+        totalGraded: number;
+        gradeSubmissionRate: number;
+        overallPassingRate: number;
+        studentsAtRisk: { id: string; name: string; grade: number; class: string }[];
+        studentsAtRiskCount: number;
+      };
+    }>("/grades/dashboard-stats"),
+
+  getMyClasses: () => api.get<ClassAssignment[]>("/grades/my-classes"),
+
+  getClassRecord: (classAssignmentId: string, quarter?: string) =>
+    api.get<{
+      classAssignment: ClassAssignment;
+      classRecord: ClassRecord[];
+    }>(`/grades/class-record/${classAssignmentId}`, {
+      params: quarter ? { quarter } : {},
+    }),
+
+  saveGrade: (data: {
+    studentId: string;
+    classAssignmentId: string;
+    quarter: string;
+    writtenWorkScores?: ScoreItem[];
+    perfTaskScores?: ScoreItem[];
+    quarterlyAssessScore?: number;
+    quarterlyAssessMax?: number;
+  }) => api.post<Grade>("/grades/grade", data),
+
+  deleteGrade: (gradeId: string) => api.delete(`/grades/grade/${gradeId}`),
+};
+
+export default api;

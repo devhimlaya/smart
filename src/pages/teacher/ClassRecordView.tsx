@@ -1,0 +1,1177 @@
+import { useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
+import {
+  ArrowLeft,
+  Save,
+  Edit,
+  Trash2,
+  Plus,
+  AlertCircle,
+  CheckCircle,
+  BookOpen,
+  Users,
+  Award,
+  FileText,
+  ClipboardList,
+  Loader2,
+  TrendingUp,
+  TrendingDown,
+  Target,
+  FileSpreadsheet,
+  User,
+  Printer,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  gradesApi,
+  type ClassAssignment,
+  type ClassRecord,
+  type Grade,
+  type ScoreItem,
+} from "@/lib/api";
+
+const gradeLevelLabels: Record<string, string> = {
+  GRADE_7: "Grade 7",
+  GRADE_8: "Grade 8",
+  GRADE_9: "Grade 9",
+  GRADE_10: "Grade 10",
+};
+
+const gradeLevelColors: Record<string, string> = {
+  GRADE_7: "from-blue-500 via-blue-600 to-indigo-600",
+  GRADE_8: "from-purple-500 via-purple-600 to-violet-600",
+  GRADE_9: "from-amber-500 via-orange-500 to-orange-600",
+  GRADE_10: "from-emerald-500 via-emerald-600 to-teal-600",
+};
+
+const quarters = ["Q1", "Q2", "Q3", "Q4"] as const;
+
+function getGradeColor(grade: number | null): string {
+  if (grade === null) return "text-gray-400";
+  if (grade >= 90) return "text-emerald-600 font-bold";
+  if (grade >= 85) return "text-blue-600 font-semibold";
+  if (grade >= 80) return "text-amber-600 font-medium";
+  if (grade >= 75) return "text-orange-600";
+  return "text-red-600 font-semibold";
+}
+
+function getGradeBgColor(grade: number | null): string {
+  if (grade === null) return "bg-gray-50";
+  if (grade >= 90) return "bg-emerald-50";
+  if (grade >= 85) return "bg-blue-50";
+  if (grade >= 80) return "bg-amber-50";
+  if (grade >= 75) return "bg-orange-50";
+  return "bg-red-50";
+}
+
+function getGradeRemarks(grade: number | null): string {
+  if (grade === null) return "-";
+  if (grade >= 90) return "Outstanding";
+  if (grade >= 85) return "Very Satisfactory";
+  if (grade >= 80) return "Satisfactory";
+  if (grade >= 75) return "Fairly Satisfactory";
+  return "Did Not Meet";
+}
+
+export default function ClassRecordView() {
+  const { classAssignmentId } = useParams();
+  const [classAssignment, setClassAssignment] = useState<ClassAssignment | null>(null);
+  const [classRecord, setClassRecord] = useState<ClassRecord[]>([]);
+  const [selectedQuarter, setSelectedQuarter] = useState<string>("Q1");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Grade input dialog state
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<ClassRecord | null>(null);
+  const [editingGrade, setEditingGrade] = useState<Grade | null>(null);
+
+  // Score input state
+  const [writtenWorkScores, setWrittenWorkScores] = useState<ScoreItem[]>([]);
+  const [perfTaskScores, setPerfTaskScores] = useState<ScoreItem[]>([]);
+  const [quarterlyAssessScore, setQuarterlyAssessScore] = useState<string>("");
+  const [quarterlyAssessMax, setQuarterlyAssessMax] = useState<string>("100");
+
+  useEffect(() => {
+    fetchClassRecord();
+  }, [classAssignmentId, selectedQuarter]);
+
+  // Auto-dismiss messages
+  useEffect(() => {
+    if (error || success) {
+      const timer = setTimeout(() => {
+        setError(null);
+        setSuccess(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, success]);
+
+  const fetchClassRecord = async () => {
+    if (!classAssignmentId) return;
+
+    try {
+      setLoading(true);
+      const response = await gradesApi.getClassRecord(classAssignmentId, selectedQuarter);
+      setClassAssignment(response.data.classAssignment);
+      setClassRecord(response.data.classRecord);
+    } catch (err) {
+      console.error("Failed to fetch class record:", err);
+      setError("Failed to load class record");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openGradeDialog = (student: ClassRecord, existingGrade?: Grade) => {
+    setSelectedStudent(student);
+    setEditingGrade(existingGrade || null);
+
+    if (existingGrade) {
+      // Load existing scores, or add a default row if empty
+      const ww = existingGrade.writtenWorkScores || [];
+      const pt = existingGrade.perfTaskScores || [];
+      setWrittenWorkScores(ww.length > 0 ? ww : [{ name: "Quiz 1", score: 0, maxScore: 10 }]);
+      setPerfTaskScores(pt.length > 0 ? pt : [{ name: "Activity 1", score: 0, maxScore: 10 }]);
+      setQuarterlyAssessScore(existingGrade.quarterlyAssessScore?.toString() || "");
+      setQuarterlyAssessMax(existingGrade.quarterlyAssessMax?.toString() || "100");
+    } else {
+      // Auto-add first item for each category - less clicking!
+      setWrittenWorkScores([{ name: "Quiz 1", score: 0, maxScore: 10 }]);
+      setPerfTaskScores([{ name: "Activity 1", score: 0, maxScore: 10 }]);
+      setQuarterlyAssessScore("");
+      setQuarterlyAssessMax("100");
+    }
+
+    setDialogOpen(true);
+  };
+
+  const addWrittenWork = () => {
+    setWrittenWorkScores([
+      ...writtenWorkScores,
+      { name: `Quiz ${writtenWorkScores.length + 1}`, score: 0, maxScore: 10 },
+    ]);
+  };
+
+  const addPerfTask = () => {
+    setPerfTaskScores([
+      ...perfTaskScores,
+      { name: `Activity ${perfTaskScores.length + 1}`, score: 0, maxScore: 10 },
+    ]);
+  };
+
+  const updateWrittenWork = (index: number, field: keyof ScoreItem, value: string | number) => {
+    const updated = [...writtenWorkScores];
+    updated[index] = { ...updated[index], [field]: field === "name" ? value : Number(value) };
+    setWrittenWorkScores(updated);
+  };
+
+  const updatePerfTask = (index: number, field: keyof ScoreItem, value: string | number) => {
+    const updated = [...perfTaskScores];
+    updated[index] = { ...updated[index], [field]: field === "name" ? value : Number(value) };
+    setPerfTaskScores(updated);
+  };
+
+  const removeWrittenWork = (index: number) => {
+    setWrittenWorkScores(writtenWorkScores.filter((_, i) => i !== index));
+  };
+
+  const removePerfTask = (index: number) => {
+    setPerfTaskScores(perfTaskScores.filter((_, i) => i !== index));
+  };
+
+  const handleSaveGrade = async () => {
+    if (!selectedStudent || !classAssignmentId) return;
+
+    try {
+      setSaving(true);
+
+      const gradeData = {
+        studentId: selectedStudent.student.id,
+        classAssignmentId,
+        quarter: selectedQuarter,
+        writtenWorkScores,
+        perfTaskScores,
+        quarterlyAssessScore: quarterlyAssessScore ? Number(quarterlyAssessScore) : undefined,
+        quarterlyAssessMax: quarterlyAssessMax ? Number(quarterlyAssessMax) : undefined,
+      };
+
+      await gradesApi.saveGrade(gradeData);
+
+      setSuccess("Grade saved successfully!");
+      setDialogOpen(false);
+      fetchClassRecord();
+    } catch (err) {
+      console.error("Failed to save grade:", err);
+      setError("Failed to save grade. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteGrade = async (gradeId: string) => {
+    if (!window.confirm("Are you sure you want to delete this grade?")) return;
+
+    try {
+      await gradesApi.deleteGrade(gradeId);
+      setSuccess("Grade deleted successfully!");
+      fetchClassRecord();
+    } catch (err) {
+      console.error("Failed to delete grade:", err);
+      setError("Failed to delete grade. Please try again.");
+    }
+  };
+
+  // Calculate class statistics
+  const calculateStats = () => {
+    const grades = classRecord
+      .map((r) => r.grades.find((g) => g.quarter === selectedQuarter)?.quarterlyGrade)
+      .filter((g): g is number => g !== undefined && g !== null);
+
+    if (grades.length === 0) return { avg: 0, passed: 0, highest: 0, lowest: 0 };
+
+    return {
+      avg: grades.reduce((a, b) => a + b, 0) / grades.length,
+      passed: grades.filter((g) => g >= 75).length,
+      highest: Math.max(...grades),
+      lowest: Math.min(...grades),
+    };
+  };
+
+  const stats = classRecord.length > 0 ? calculateStats() : null;
+
+  // Print SF8 - Class Record (Complete class grades)
+  const printSF8 = () => {
+    if (!classAssignment) return;
+    
+    const quarterLabel = selectedQuarter === 'Q1' ? '1st Quarter' : selectedQuarter === 'Q2' ? '2nd Quarter' : selectedQuarter === 'Q3' ? '3rd Quarter' : '4th Quarter';
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const studentsRows = classRecord.map((record, index) => {
+      const grade = record.grades.find(g => g.quarter === selectedQuarter);
+      return `
+        <tr>
+          <td style="text-align: center; padding: 8px; border: 1px solid #000;">${index + 1}</td>
+          <td style="padding: 8px; border: 1px solid #000; font-family: monospace;">${record.student.lrn}</td>
+          <td style="padding: 8px; border: 1px solid #000; font-weight: 500;">
+            ${record.student.lastName}, ${record.student.firstName}${record.student.middleName ? ' ' + record.student.middleName.charAt(0) + '.' : ''}${record.student.suffix ? ' ' + record.student.suffix : ''}
+          </td>
+          <td style="text-align: center; padding: 8px; border: 1px solid #000;">${grade?.writtenWorkPS?.toFixed(1) || '-'}</td>
+          <td style="text-align: center; padding: 8px; border: 1px solid #000;">${grade?.perfTaskPS?.toFixed(1) || '-'}</td>
+          <td style="text-align: center; padding: 8px; border: 1px solid #000;">${grade?.quarterlyAssessPS?.toFixed(1) || '-'}</td>
+          <td style="text-align: center; padding: 8px; border: 1px solid #000;">${grade?.initialGrade?.toFixed(2) || '-'}</td>
+          <td style="text-align: center; padding: 8px; border: 1px solid #000; font-weight: bold; font-size: 14px;">${grade?.quarterlyGrade || '-'}</td>
+          <td style="padding: 8px; border: 1px solid #000; text-align: center;">
+            ${grade?.quarterlyGrade ? (grade.quarterlyGrade >= 75 ? 'Passed' : 'Failed') : '-'}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SF8 - Class Record - ${classAssignment.subject.name}</title>
+        <style>
+          @page { size: landscape; margin: 0.75in; }
+          body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; padding: 25px; }
+          .header { display: flex; align-items: center; justify-content: center; margin-bottom: 25px; gap: 20px; }
+          .header-logo { width: 85px; height: 85px; }
+          .header-text { text-align: center; flex-grow: 1; }
+          .header-text p { margin: 4px 0; font-size: 12px; }
+          .header-text h1 { margin: 10px 0 6px 0; font-size: 17px; text-transform: uppercase; font-weight: bold; }
+          .header-text h2 { margin: 6px 0; font-size: 14px; font-weight: normal; }
+          .republic { font-size: 12px; font-weight: normal; }
+          .deped { font-size: 13px; font-weight: bold; }
+          .info-row { display: flex; justify-content: space-between; margin-bottom: 18px; font-size: 12px; }
+          .info-row div { flex: 1; padding: 0 5px; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 20px; }
+          th { background-color: #f0f0f0; padding: 12px 10px; border: 1px solid #000; font-weight: bold; }
+          td { padding: 10px 8px; border: 1px solid #000; }
+          .weights { margin-top: 20px; font-size: 11px; padding: 12px; background: #fafafa; border-radius: 5px; }
+          .signature-section { margin-top: 50px; display: flex; justify-content: space-between; }
+          .signature-box { width: 220px; text-align: center; }
+          .signature-line { border-top: 1px solid #000; margin-top: 50px; padding-top: 8px; font-size: 11px; }
+          @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <img src="/DepEd.png" alt="DepEd Logo" class="header-logo" />
+          <div class="header-text">
+            <p class="republic">Republic of the Philippines</p>
+            <p class="deped">Department of Education</p>
+            <p style="font-size: 10px; margin-top: 8px;">Region _____ Division _____ District _____</p>
+            <h1>School Form 8 (SF8) - Class Record</h1>
+            <h2>Learner's Progress Report Card</h2>
+          </div>
+          <div style="width: 80px;"></div>
+        </div>
+        
+        <div class="info-row">
+          <div><strong>School:</strong> _________________________</div>
+          <div><strong>School ID:</strong> _________________________</div>
+          <div><strong>School Year:</strong> ${classAssignment.section.schoolYear}</div>
+        </div>
+        
+        <div class="info-row">
+          <div><strong>Grade Level:</strong> ${gradeLevelLabels[classAssignment.section.gradeLevel]}</div>
+          <div><strong>Section:</strong> ${classAssignment.section.name}</div>
+          <div><strong>Quarter:</strong> ${quarterLabel}</div>
+        </div>
+        
+        <div class="info-row">
+          <div><strong>Subject:</strong> ${classAssignment.subject.name}</div>
+          <div><strong>Teacher:</strong> _________________________</div>
+          <div><strong>Date:</strong> ${new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 30px;">#</th>
+              <th style="width: 120px;">LRN</th>
+              <th>Learner's Name<br>(Last Name, First Name, M.I.)</th>
+              <th style="width: 60px;">WW<br>(${classAssignment.subject.writtenWorkWeight}%)</th>
+              <th style="width: 60px;">PT<br>(${classAssignment.subject.perfTaskWeight}%)</th>
+              <th style="width: 60px;">QA<br>(${classAssignment.subject.quarterlyAssessWeight}%)</th>
+              <th style="width: 60px;">Initial<br>Grade</th>
+              <th style="width: 60px;">Quarterly<br>Grade</th>
+              <th style="width: 70px;">Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${studentsRows}
+          </tbody>
+        </table>
+
+        <div class="weights">
+          <strong>Component Weights:</strong> Written Work (${classAssignment.subject.writtenWorkWeight}%) | Performance Tasks (${classAssignment.subject.perfTaskWeight}%) | Quarterly Assessment (${classAssignment.subject.quarterlyAssessWeight}%)
+        </div>
+
+        <div class="signature-section">
+          <div class="signature-box">
+            <div class="signature-line">Subject Teacher</div>
+          </div>
+          <div class="signature-box">
+            <div class="signature-line">School Principal</div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
+    
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 250);
+  };
+
+  // Print SF9 - Individual Student Report Card
+  const printSF9 = (student: ClassRecord) => {
+    if (!classAssignment) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    // Get all quarters data for this student
+    const getQuarterGrade = (q: string) => student.grades.find(g => g.quarter === q);
+    const q1 = getQuarterGrade('Q1');
+    const q2 = getQuarterGrade('Q2');
+    const q3 = getQuarterGrade('Q3');
+    const q4 = getQuarterGrade('Q4');
+
+    const quarterGrades = [q1?.quarterlyGrade, q2?.quarterlyGrade, q3?.quarterlyGrade, q4?.quarterlyGrade].filter(g => g !== undefined && g !== null) as number[];
+    const finalGrade = quarterGrades.length > 0 ? Math.round(quarterGrades.reduce((a, b) => a + b, 0) / quarterGrades.length) : null;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SF9 - Report Card - ${student.student.lastName}, ${student.student.firstName}</title>
+        <style>
+          @page { size: portrait; margin: 0.75in; }
+          body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; padding: 25px; max-width: 800px; margin: 0 auto; }
+          .header { display: flex; align-items: center; justify-content: center; margin-bottom: 30px; border-bottom: 2px solid #000; padding-bottom: 20px; gap: 20px; }
+          .header-logo { width: 80px; height: 80px; }
+          .header-text { text-align: center; flex-grow: 1; }
+          .header-text p { margin: 4px 0; font-size: 11px; }
+          .header-text h1 { margin: 10px 0 6px 0; font-size: 16px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; }
+          .header-text h2 { margin: 6px 0; font-size: 13px; font-weight: normal; }
+          .republic { font-size: 11px; font-weight: normal; }
+          .deped { font-size: 12px; font-weight: bold; }
+          .student-info { background: #f5f5f5; padding: 20px; border-radius: 5px; margin-bottom: 30px; }
+          .student-info h3 { margin: 0 0 15px 0; font-size: 15px; border-bottom: 1px solid #999; padding-bottom: 10px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+          .info-item { display: flex; margin-bottom: 5px; }
+          .info-label { font-weight: bold; width: 110px; font-size: 12px; }
+          table { width: 100%; border-collapse: collapse; margin: 30px 0; }
+          th, td { border: 1px solid #000; padding: 14px 10px; text-align: center; font-size: 12px; }
+          th { background-color: #e8e8e8; font-weight: bold; }
+          .subject-name { text-align: left !important; font-weight: 500; padding-left: 15px !important; }
+          .grade-cell { font-weight: bold; font-size: 15px; }
+          .passed { color: #16a34a; }
+          .failed { color: #dc2626; }
+          .remarks-section { margin-top: 30px; padding: 20px; background: #f9f9f9; border-radius: 5px; }
+          .remarks-section h4 { margin: 0 0 12px 0; font-size: 14px; }
+          .signature-section { margin-top: 50px; display: flex; justify-content: space-between; }
+          .signature-box { width: 200px; text-align: center; }
+          .signature-line { border-top: 1px solid #000; margin-top: 55px; padding-top: 8px; font-size: 11px; }
+          .legend { margin-top: 30px; font-size: 11px; padding: 15px; background: #fafafa; border-radius: 5px; }
+          .legend h3 { margin: 0 0 12px 0; font-size: 13px; }
+          .legend table { font-size: 11px; margin-top: 10px; }
+          .legend th, .legend td { padding: 8px; }
+          @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <img src="/DepEd.png" alt="DepEd Logo" class="header-logo" />
+          <div class="header-text">
+            <p class="republic">Republic of the Philippines</p>
+            <p class="deped">Department of Education</p>
+            <p style="font-size: 9px; margin-top: 6px;">Region _____ Division _____ District _____</p>
+            <h1>School Form 9 (SF9)</h1>
+            <h2>Learner's Progress Report Card</h2>
+            <p style="font-weight: bold; margin-top: 6px;">${classAssignment.subject.name}</p>
+          </div>
+          <div style="width: 70px;"></div>
+        </div>
+
+        <div class="student-info">
+          <h3>Learner's Information</h3>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">Name:</span>
+              <span>${student.student.lastName}, ${student.student.firstName}${student.student.middleName ? ' ' + student.student.middleName : ''}${student.student.suffix ? ' ' + student.student.suffix : ''}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">LRN:</span>
+              <span style="font-family: monospace;">${student.student.lrn}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Grade Level:</span>
+              <span>${gradeLevelLabels[classAssignment.section.gradeLevel]}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Section:</span>
+              <span>${classAssignment.section.name}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">School Year:</span>
+              <span>${classAssignment.section.schoolYear}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Date:</span>
+              <span>${new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            </div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th rowspan="2" style="width: 200px;">Learning Areas</th>
+              <th colspan="4">Quarterly Grades</th>
+              <th rowspan="2" style="width: 60px;">Final Grade</th>
+              <th rowspan="2" style="width: 80px;">Remarks</th>
+            </tr>
+            <tr>
+              <th style="width: 50px;">Q1</th>
+              <th style="width: 50px;">Q2</th>
+              <th style="width: 50px;">Q3</th>
+              <th style="width: 50px;">Q4</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="subject-name">${classAssignment.subject.name}</td>
+              <td class="grade-cell">${q1?.quarterlyGrade || '-'}</td>
+              <td class="grade-cell">${q2?.quarterlyGrade || '-'}</td>
+              <td class="grade-cell">${q3?.quarterlyGrade || '-'}</td>
+              <td class="grade-cell">${q4?.quarterlyGrade || '-'}</td>
+              <td class="grade-cell ${finalGrade && finalGrade >= 75 ? 'passed' : finalGrade ? 'failed' : ''}">${finalGrade || '-'}</td>
+              <td class="${finalGrade && finalGrade >= 75 ? 'passed' : finalGrade ? 'failed' : ''}">${finalGrade ? (finalGrade >= 75 ? 'Passed' : 'Failed') : '-'}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="remarks-section">
+          <h4>Grading Scale</h4>
+          <table class="legend">
+            <tr>
+              <th>Descriptor</th>
+              <th>Grading Scale</th>
+              <th>Remarks</th>
+            </tr>
+            <tr>
+              <td>Outstanding</td>
+              <td>90 - 100</td>
+              <td>Passed</td>
+            </tr>
+            <tr>
+              <td>Very Satisfactory</td>
+              <td>85 - 89</td>
+              <td>Passed</td>
+            </tr>
+            <tr>
+              <td>Satisfactory</td>
+              <td>80 - 84</td>
+              <td>Passed</td>
+            </tr>
+            <tr>
+              <td>Fairly Satisfactory</td>
+              <td>75 - 79</td>
+              <td>Passed</td>
+            </tr>
+            <tr>
+              <td>Did Not Meet Expectations</td>
+              <td>Below 75</td>
+              <td>Failed</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="signature-section">
+          <div class="signature-box">
+            <div class="signature-line">Class Adviser</div>
+          </div>
+          <div class="signature-box">
+            <div class="signature-line">Parent/Guardian</div>
+          </div>
+          <div class="signature-box">
+            <div class="signature-line">School Principal</div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 250);
+  };
+
+  // Print All SF9 - Opens each student's SF9 in sequence
+  const printAllSF9 = () => {
+    classRecord.forEach((student, index) => {
+      setTimeout(() => {
+        printSF9(student);
+      }, index * 500); // Stagger by 500ms to avoid browser blocking
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center shadow-lg shadow-emerald-100 animate-pulse">
+            <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
+          </div>
+          <p className="text-gray-600 font-semibold text-lg">Loading class record...</p>
+          <p className="text-gray-400 text-sm mt-1">Fetching student data</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!classAssignment) {
+    return (
+      <Card className="max-w-lg mx-auto mt-16 border-none shadow-2xl rounded-3xl overflow-hidden">
+        <CardContent className="flex flex-col items-center py-16 px-8">
+          <div className="w-20 h-20 bg-gradient-to-br from-red-100 to-rose-100 rounded-2xl flex items-center justify-center mb-6 shadow-lg">
+            <AlertCircle className="w-10 h-10 text-red-500" />
+          </div>
+          <h3 className="text-2xl font-bold text-gray-900 mb-3">Class Not Found</h3>
+          <p className="text-gray-500 text-center mb-8 leading-relaxed">
+            The class record you're looking for doesn't exist or you don't have permission to access it.
+          </p>
+          <Link to="/teacher/records">
+            <Button className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/25 rounded-xl px-6">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Class Records
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const gradientClass = gradeLevelColors[classAssignment.section.gradeLevel] || "from-gray-500 to-gray-600";
+
+  return (
+    <div className="space-y-8 animate-fade-in">
+      {/* Success/Error Alerts - Floating Toast Style */}
+      {(error || success) && (
+        <div
+          className={`fixed top-6 right-6 z-50 flex items-center gap-4 px-5 py-4 rounded-2xl shadow-2xl border animate-slide-in-right ${
+            error
+              ? "bg-gradient-to-r from-red-50 to-rose-50 border-red-200 text-red-800"
+              : "bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-200 text-emerald-800"
+          }`}
+        >
+          <div className={`p-2 rounded-xl ${error ? 'bg-red-100' : 'bg-emerald-100'}`}>
+            {error ? (
+              <AlertCircle className="w-5 h-5 text-red-600" />
+            ) : (
+              <CheckCircle className="w-5 h-5 text-emerald-600" />
+            )}
+          </div>
+          <span className="font-semibold">{error || success}</span>
+        </div>
+      )}
+
+      {/* Header Card - Premium Glass Design */}
+      <Card className="border-none shadow-2xl shadow-gray-200/50 overflow-hidden rounded-3xl">
+        <div className={`bg-gradient-to-r ${gradientClass} p-8 lg:p-10 text-white relative overflow-hidden`}>
+          {/* Background decorations */}
+          <div className="absolute inset-0 overflow-hidden">
+            <div className="absolute top-0 right-0 w-80 h-80 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4" />
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
+            <div className="absolute inset-0 opacity-[0.03]" style={{
+              backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+              backgroundSize: '40px 40px'
+            }} />
+          </div>
+          
+          <div className="relative flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+            <div className="flex items-start gap-5">
+              <Link
+                to="/teacher/records"
+                className="p-3 rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all duration-300 border border-white/20 shadow-lg"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </Link>
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <Badge className="bg-white/20 text-white hover:bg-white/30 border-0 font-semibold px-3 py-1 backdrop-blur-sm">
+                    {gradeLevelLabels[classAssignment.section.gradeLevel]}
+                  </Badge>
+                  <span className="text-white/70 text-sm">•</span>
+                  <span className="text-white/80 text-sm font-medium">
+                    Section {classAssignment.section.name}
+                  </span>
+                </div>
+                <h1 className="text-3xl lg:text-4xl font-bold tracking-tight">{classAssignment.subject.name}</h1>
+                <p className="text-white/60 mt-2 text-sm">
+                  School Year {classAssignment.section.schoolYear}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Component Weights - Modern Cards */}
+          <div className="relative grid grid-cols-3 gap-4 lg:gap-6 mt-8 pt-8 border-t border-white/20">
+            {[
+              { icon: FileText, label: "Written Work", value: classAssignment.subject.writtenWorkWeight },
+              { icon: ClipboardList, label: "Performance", value: classAssignment.subject.perfTaskWeight },
+              { icon: Award, label: "Quarterly Assess", value: classAssignment.subject.quarterlyAssessWeight },
+            ].map((item) => (
+              <div key={item.label} className="text-center p-4 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="flex items-center justify-center gap-2 text-white/70 text-sm mb-2">
+                  <item.icon className="w-4 h-4" />
+                  <span className="font-medium">{item.label}</span>
+                </div>
+                <p className="text-3xl font-bold">{item.value}%</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {/* Stats Cards - Bento Grid Style */}
+      {stats && stats.avg > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 lg:gap-6">
+          {[
+            { label: "Class Average", value: stats.avg.toFixed(1), icon: Target, color: "emerald", gradient: "from-emerald-50 to-teal-50", iconBg: "from-emerald-500 to-teal-600" },
+            { label: "Passed", value: `${stats.passed}/${classRecord.length}`, icon: TrendingUp, color: "blue", gradient: "from-blue-50 to-indigo-50", iconBg: "from-blue-500 to-indigo-600" },
+            { label: "Highest Score", value: stats.highest.toString(), icon: Award, color: "amber", gradient: "from-amber-50 to-orange-50", iconBg: "from-amber-500 to-orange-600" },
+            { label: "Lowest Score", value: stats.lowest.toString(), icon: TrendingDown, color: "purple", gradient: "from-purple-50 to-violet-50", iconBg: "from-purple-500 to-violet-600" },
+          ].map((stat) => (
+            <Card key={stat.label} className={`border-none shadow-lg shadow-${stat.color}-100/50 bg-gradient-to-br ${stat.gradient} rounded-2xl overflow-hidden`}>
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className={`p-2.5 rounded-xl bg-gradient-to-br ${stat.iconBg} text-white shadow-lg`}>
+                    <stat.icon className="w-5 h-5" />
+                  </div>
+                </div>
+                <p className={`text-${stat.color}-600 text-sm font-semibold uppercase tracking-wider`}>{stat.label}</p>
+                <p className={`text-3xl font-bold text-${stat.color}-700 mt-1`}>{stat.value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Main Content Card - Modern Table Design */}
+      <Card className="border-none shadow-2xl shadow-gray-200/50 overflow-hidden rounded-3xl">
+        <CardHeader className="bg-gradient-to-r from-gray-50 via-slate-50 to-gray-50 border-b border-gray-100 flex flex-row items-center justify-between py-6 px-8">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/25">
+              <Users className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <CardTitle className="text-xl font-bold text-gray-900">Student Grades</CardTitle>
+              <p className="text-sm text-gray-500 mt-0.5">{classRecord.length} students enrolled</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <Label className="text-gray-600 font-semibold">Quarter:</Label>
+            <Select value={selectedQuarter} onValueChange={(val) => val && setSelectedQuarter(val)}>
+              <SelectTrigger className="w-40 bg-white border-gray-200 focus:ring-emerald-500 rounded-xl h-11 font-medium">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                {quarters.map((q) => (
+                  <SelectItem key={q} value={q} className="rounded-lg">
+                    {q === "Q1" ? "1st Quarter" : q === "Q2" ? "2nd Quarter" : q === "Q3" ? "3rd Quarter" : "4th Quarter"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-2 ml-4">
+              <Button
+                onClick={printSF8}
+                variant="outline"
+                className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-xl font-medium"
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                Print SF8
+              </Button>
+              <Button
+                onClick={printAllSF9}
+                variant="outline"
+                className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-xl font-medium"
+              >
+                <User className="w-4 h-4 mr-2" />
+                Print All SF9
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          <ScrollArea className="h-[550px]">
+            <Table>
+              <TableHeader className="bg-gradient-to-r from-gray-50 to-slate-50 sticky top-0 z-10">
+                <TableRow className="hover:bg-gray-50 border-b-2 border-gray-100">
+                  <TableHead className="w-14 text-center font-bold text-gray-700 py-5">#</TableHead>
+                  <TableHead className="w-32 font-bold text-gray-700">LRN</TableHead>
+                  <TableHead className="font-bold text-gray-700">Student Name</TableHead>
+                  <TableHead className="text-center w-20 font-bold text-gray-700">WW%</TableHead>
+                  <TableHead className="text-center w-20 font-bold text-gray-700">PT%</TableHead>
+                  <TableHead className="text-center w-20 font-bold text-gray-700">QA%</TableHead>
+                  <TableHead className="text-center w-24 font-bold text-gray-700">Initial</TableHead>
+                  <TableHead className="text-center w-24 font-bold text-gray-700">Grade</TableHead>
+                  <TableHead className="w-36 font-bold text-gray-700">Remarks</TableHead>
+                  <TableHead className="text-right w-28 font-bold text-gray-700">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {classRecord.map((record, index) => {
+                  const grade = record.grades.find((g) => g.quarter === selectedQuarter);
+                  return (
+                    <TableRow
+                      key={record.student.id}
+                      className={`transition-all duration-200 hover:bg-gray-50/80 ${getGradeBgColor(grade?.quarterlyGrade ?? null)} border-b border-gray-50`}
+                    >
+                      <TableCell className="text-center text-gray-500 font-semibold py-5">
+                        {index + 1}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm text-gray-600 tracking-wide">
+                        {record.student.lrn}
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-semibold text-gray-900">
+                          {record.student.lastName}, {record.student.firstName}
+                          {record.student.middleName && (
+                            <span className="text-gray-400 ml-1 font-normal">
+                              {record.student.middleName.charAt(0)}.
+                            </span>
+                          )}
+                          {record.student.suffix && (
+                            <span className="text-gray-400 font-normal"> {record.student.suffix}</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center font-semibold">
+                        {grade?.writtenWorkPS?.toFixed(1) || <span className="text-gray-300">—</span>}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold">
+                        {grade?.perfTaskPS?.toFixed(1) || <span className="text-gray-300">—</span>}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold">
+                        {grade?.quarterlyAssessPS?.toFixed(1) || <span className="text-gray-300">—</span>}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold">
+                        {grade?.initialGrade?.toFixed(2) || <span className="text-gray-300">—</span>}
+                      </TableCell>
+                      <TableCell className={`text-center text-xl ${getGradeColor(grade?.quarterlyGrade ?? null)}`}>
+                        {grade?.quarterlyGrade || <span className="text-gray-300 text-base">—</span>}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="secondary"
+                          className={`text-xs font-semibold px-3 py-1 rounded-lg ${
+                            grade?.quarterlyGrade
+                              ? grade.quarterlyGrade >= 75
+                                ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                : "bg-red-100 text-red-700 border border-red-200"
+                              : "bg-gray-100 text-gray-400"
+                          }`}
+                        >
+                          {getGradeRemarks(grade?.quarterlyGrade ?? null)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openGradeDialog(record, grade)}
+                            className="h-8 w-8 p-0 rounded-lg hover:bg-emerald-100 hover:text-emerald-700 transition-all"
+                            title={grade ? "Edit Grade" : "Add Grade"}
+                          >
+                            {grade ? (
+                              <Edit className="w-4 h-4" />
+                            ) : (
+                              <Plus className="w-4 h-4" />
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => printSF9(record)}
+                            className="h-8 w-8 p-0 rounded-lg hover:bg-blue-100 hover:text-blue-700 transition-all"
+                            title="Print SF9"
+                          >
+                            <Printer className="w-4 h-4" />
+                          </Button>
+                          {grade && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                              onClick={() => handleDeleteGrade(grade.id)}
+                              title="Delete Grade"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      {/* Grade Input Dialog - Tab-Based Responsive Design */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="w-full max-w-md sm:max-w-lg max-h-[90vh] overflow-hidden flex flex-col rounded-2xl border-0 shadow-2xl bg-white p-0">
+          {/* Header */}
+          <DialogHeader className="border-b border-gray-100 px-4 sm:px-6 py-4 bg-white shrink-0">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradientClass} flex items-center justify-center shadow-lg shrink-0`}>
+                <BookOpen className="w-5 h-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle className="text-base font-bold truncate" style={{ color: '#000000' }}>
+                  {editingGrade ? "Edit Grade" : "Add Grade"} — {selectedQuarter === 'Q1' ? '1st Quarter' : selectedQuarter === 'Q2' ? '2nd Quarter' : selectedQuarter === 'Q3' ? '3rd Quarter' : '4th Quarter'}
+                </DialogTitle>
+                <DialogDescription className="text-base truncate">
+                  {selectedStudent && (
+                    <span className="font-semibold text-black">
+                      {selectedStudent.student.lastName}, {selectedStudent.student.firstName}
+                    </span>
+                  )}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {/* Tab Content */}
+          <Tabs defaultValue="quiz" className="flex-1 flex flex-col overflow-hidden">
+            <TabsList className="shrink-0 mx-4 sm:mx-6 mt-4 bg-gray-100 p-1 rounded-xl h-auto grid grid-cols-3 gap-1">
+              <TabsTrigger 
+                value="quiz" 
+                className="flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-lg text-sm font-semibold transition-all data-[active]:bg-blue-500 data-[active]:text-white data-[active]:shadow-md"
+              >
+                <FileText className="w-4 h-4" />
+                <span className="hidden sm:inline">Quiz</span>
+                <span className="sm:hidden">WW</span>
+                <span className="ml-1 bg-blue-100 text-blue-700 data-[active]:bg-blue-400 data-[active]:text-white text-xs px-1.5 py-0 h-5 rounded-full inline-flex items-center justify-center min-w-[20px]">
+                  {writtenWorkScores.length}
+                </span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="pt" 
+                className="flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-lg text-sm font-semibold transition-all data-[active]:bg-purple-500 data-[active]:text-white data-[active]:shadow-md"
+              >
+                <ClipboardList className="w-4 h-4" />
+                <span>PT</span>
+                <span className="ml-1 bg-purple-100 text-purple-700 data-[active]:bg-purple-400 data-[active]:text-white text-xs px-1.5 py-0 h-5 rounded-full inline-flex items-center justify-center min-w-[20px]">
+                  {perfTaskScores.length}
+                </span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="qa" 
+                className="flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-lg text-sm font-semibold transition-all data-[active]:bg-amber-500 data-[active]:text-white data-[active]:shadow-md"
+              >
+                <Award className="w-4 h-4" />
+                <span>QA</span>
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Quiz Tab */}
+            <TabsContent value="quiz" className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">Written Work</h3>
+                    <p className="text-sm text-blue-600 font-medium">Weight: {classAssignment.subject.writtenWorkWeight}%</p>
+                  </div>
+                  <Button
+                    onClick={addWrittenWork}
+                    size="sm"
+                    className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium h-9 px-3 shadow-sm"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add
+                  </Button>
+                </div>
+                
+                {writtenWorkScores.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <FileText className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No quizzes added yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {writtenWorkScores.map((item, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-2 sm:gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                          {index + 1}
+                        </div>
+                        <span className="text-gray-700 font-medium text-sm flex-1 min-w-0 truncate">Quiz {index + 1}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Input
+                            type="number"
+                            value={item.score || ""}
+                            onChange={(e) => updateWrittenWork(index, "score", e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            placeholder="0"
+                            className="w-14 sm:w-16 text-center bg-white border-2 border-blue-200 rounded-lg h-9 text-base font-bold focus:border-blue-400"
+                            min={0}
+                          />
+                          <span className="text-gray-400 font-bold">/</span>
+                          <Input
+                            type="number"
+                            value={item.maxScore || ""}
+                            onChange={(e) => updateWrittenWork(index, "maxScore", e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            placeholder="100"
+                            className="w-14 sm:w-16 text-center bg-gray-50 border-2 border-gray-200 rounded-lg h-9 text-base font-bold focus:border-gray-400"
+                            min={1}
+                          />
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg shrink-0"
+                          onClick={() => removeWrittenWork(index)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* Performance Tasks Tab */}
+            <TabsContent value="pt" className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">Performance Tasks</h3>
+                    <p className="text-sm text-purple-600 font-medium">Weight: {classAssignment.subject.perfTaskWeight}%</p>
+                  </div>
+                  <Button
+                    onClick={addPerfTask}
+                    size="sm"
+                    className="bg-purple-500 hover:bg-purple-600 text-white rounded-lg font-medium h-9 px-3 shadow-sm"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add
+                  </Button>
+                </div>
+                
+                {perfTaskScores.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <ClipboardList className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No tasks added yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {perfTaskScores.map((item, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-2 sm:gap-3 p-3 bg-purple-50 rounded-xl border border-purple-100"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                          {index + 1}
+                        </div>
+                        <span className="text-gray-700 font-medium text-sm flex-1 min-w-0 truncate">Task {index + 1}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Input
+                            type="number"
+                            value={item.score || ""}
+                            onChange={(e) => updatePerfTask(index, "score", e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            placeholder="0"
+                            className="w-14 sm:w-16 text-center bg-white border-2 border-purple-200 rounded-lg h-9 text-base font-bold focus:border-purple-400"
+                            min={0}
+                          />
+                          <span className="text-gray-400 font-bold">/</span>
+                          <Input
+                            type="number"
+                            value={item.maxScore || ""}
+                            onChange={(e) => updatePerfTask(index, "maxScore", e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            placeholder="100"
+                            className="w-14 sm:w-16 text-center bg-gray-50 border-2 border-gray-200 rounded-lg h-9 text-base font-bold focus:border-gray-400"
+                            min={1}
+                          />
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg shrink-0"
+                          onClick={() => removePerfTask(index)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* Quarterly Assessment Tab */}
+            <TabsContent value="qa" className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+              <div className="space-y-4">
+                <div className="mb-4">
+                  <h3 className="text-base font-bold text-gray-900">Quarterly Assessment</h3>
+                  <p className="text-sm text-amber-600 font-medium">Weight: {classAssignment.subject.quarterlyAssessWeight}%</p>
+                </div>
+                
+                <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+                  <div className="flex items-center gap-2 sm:gap-3 justify-center">
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        type="number"
+                        value={quarterlyAssessScore}
+                        onChange={(e) => setQuarterlyAssessScore(e.target.value)}
+                        onFocus={(e) => e.target.select()}
+                        placeholder="0"
+                        min={0}
+                        className="w-14 sm:w-16 text-center bg-white border-2 border-amber-200 rounded-lg h-9 text-base font-bold focus:border-amber-400"
+                      />
+                      <span className="text-gray-400 font-bold">/</span>
+                      <Input
+                        type="number"
+                        value={quarterlyAssessMax}
+                        onChange={(e) => setQuarterlyAssessMax(e.target.value)}
+                        onFocus={(e) => e.target.select()}
+                        placeholder="100"
+                        min={1}
+                        className="w-14 sm:w-16 text-center bg-gray-50 border-2 border-gray-200 rounded-lg h-9 text-base font-bold focus:border-gray-400"
+                      />
+                    </div>
+                    {quarterlyAssessScore && quarterlyAssessMax && (
+                      <div className="text-sm">
+                        <span className="text-gray-500">= </span>
+                        <span className="font-bold text-amber-600">
+                          {((Number(quarterlyAssessScore) / Number(quarterlyAssessMax)) * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          {/* Footer with Actions */}
+          <div className="border-t border-gray-100 px-4 sm:px-6 py-4 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
+            <Button 
+              variant="outline" 
+              onClick={() => setDialogOpen(false)} 
+              className="h-10 px-4 sm:px-6 rounded-lg font-medium text-sm"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveGrade}
+              disabled={saving}
+              className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 h-10 px-4 sm:px-6 rounded-lg font-medium text-sm shadow-md"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Grade
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
