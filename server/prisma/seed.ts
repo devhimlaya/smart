@@ -178,9 +178,13 @@ async function main() {
         name: section.name,
         gradeLevel: section.gradeLevel,
         schoolYear,
-        adviserId: section.isAdvisory ? teacher.id : undefined,
       },
     });
+
+    // Update adviser separately if this is an advisory section
+    if (section.isAdvisory && teacher) {
+      await prisma.$executeRaw`UPDATE "Section" SET "adviserId" = ${teacher.id} WHERE name = ${section.name} AND "gradeLevel" = ${section.gradeLevel}::"GradeLevel" AND "schoolYear" = ${schoolYear}`;
+    }
   }
 
   // Get created sections
